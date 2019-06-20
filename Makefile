@@ -20,6 +20,8 @@ ubuntu16.04: $(addsuffix -ubuntu16.04, 18.09.2 18.06.2 18.09.1 18.09.0 18.06.1 1
 
 ubuntu14.04: $(addsuffix -ubuntu14.04, 18.09.2 18.06.2 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.09.1 17.06.2 17.03.2)
 
+debian10: $(addsuffix -debian10, 18.09.6)
+
 debian9: $(addsuffix -debian9, 18.09.2 18.06.2 18.09.1 18.09.0 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.12.0 17.09.1 17.09.0 17.06.2 17.03.2)
 
 debian8: $(addsuffix -debian8, 18.06.2 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.09.1 17.06.2)
@@ -314,6 +316,32 @@ amzn1: $(addsuffix -amzn1, 18.06.2-ce 18.06.1-ce 18.03.1-ce 17.12.1-ce 17.09.1-c
 	$(MKDIR) -p $(DIST_DIR)/ubuntu14.04/$(ARCH)
 	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.0"
 	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu14.04/$(ARCH)
+	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+
+%-debian10: ARCH := amd64
+%-debian10:
+	$(DOCKER) build --build-arg VERSION_ID="buster" \
+                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
+                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~debian)" \
+                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
+                        --build-arg PKG_REV="$(PKG_REV)" \
+                        -t "nvidia/nvidia-docker2/debian:10-docker$*" -f Dockerfile.debian .
+	$(MKDIR) -p $(DIST_DIR)/debian10/$(ARCH)
+	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:10-docker$*"
+	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian10/$(ARCH)
+	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+
+18.09.6-debian10: ARCH := amd64
+18.09.6-debian10:
+	$(DOCKER) build --build-arg VERSION_ID="buster" \
+                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.6-1" \
+                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.6~3-0~debian-buster)" \
+                        --build-arg PKG_VERS="$(VERSION)+docker18.09.6" \
+                        --build-arg PKG_REV="$(PKG_REV)" \
+                        -t "nvidia/nvidia-docker2/debian:10-docker18.09.6" -f Dockerfile.debian .
+	$(MKDIR) -p $(DIST_DIR)/debian10/$(ARCH)
+	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:10-docker18.09.6"
+	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian10/$(ARCH)
 	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
 
 %-debian9: ARCH := amd64
