@@ -2,591 +2,142 @@
 
 DOCKER ?= docker
 MKDIR  ?= mkdir
+DIST_DIR ?= $(CURDIR)/dist
 
-VERSION := 2.0.3
+LIB_NAME := nvidia-docker2
+LIB_VERSION := 2.6.0
 PKG_REV := 1
-RUNTIME_VERSION := 2.0.0
 
-DIST_DIR  := $(CURDIR)/dist
+RUNTIME_VERSION := 3.5.0
 
-.NOTPARALLEL:
-.PHONY: all
+# Supported OSs by architecture
+AMD64_TARGETS := ubuntu20.04 ubuntu18.04 ubuntu16.04 debian10 debian9
+X86_64_TARGETS := centos7 centos8 rhel7 rhel8 amazonlinux1 amazonlinux2 opensuse-leap15.1
+PPC64LE_TARGETS := ubuntu18.04 ubuntu16.04 centos7 centos8 rhel7 rhel8
+ARM64_TARGETS := ubuntu20.04 ubuntu18.04
+AARCH64_TARGETS := centos8 rhel8
 
-all: ubuntu18.04 ubuntu16.04 ubuntu14.04 debian9 debian8 centos7 amzn2 amzn1
+# By default run all native docker-based targets
+docker-native:
 
-ubuntu18.04: $(addsuffix -ubuntu18.04, 18.09.2 18.06.2 18.09.1 18.09.0 18.06.1 18.06.0 18.03.1 17.12.1)
+# Define top-level build targets
+docker%: SHELL:=/bin/bash
 
-ubuntu16.04: $(addsuffix -ubuntu16.04, 18.09.2 18.06.2 18.09.1 18.09.0 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.12.0 17.09.1 17.09.0 17.06.2 17.03.2 1.13.1 1.12.6)
+# Native targets
+PLATFORM ?= $(shell uname -m)
+ifeq ($(PLATFORM),x86_64)
+NATIVE_TARGETS := $(AMD64_TARGETS) $(X86_64_TARGETS)
+$(AMD64_TARGETS): %: %-amd64
+$(X86_64_TARGETS): %: %-x86_64
+else ifeq ($(PLATFORM),ppc64le)
+NATIVE_TARGETS := $(PPC64LE_TARGETS)
+$(PPC64LE_TARGETS): %: %-ppc64le
+else ifeq ($(PLATFORM),aarch64)
+NATIVE_TARGETS := $(ARM64_TARGETS) $(AARCH64_TARGETS)
+$(ARM64_TARGETS): %: %-arm64
+$(AARCH64_TARGETS): %: %-aarch64
+endif
+docker-native: $(NATIVE_TARGETS)
 
-ubuntu14.04: $(addsuffix -ubuntu14.04, 18.09.2 18.06.2 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.09.1 17.06.2 17.03.2)
+# amd64 targets
+AMD64_TARGETS := $(patsubst %, %-amd64, $(AMD64_TARGETS))
+$(AMD64_TARGETS): ARCH := amd64
+$(AMD64_TARGETS): %: --%
+docker-amd64: $(AMD64_TARGETS)
 
-debian10: $(addsuffix -debian10, 18.09.6)
+# x86_64 targets
+X86_64_TARGETS := $(patsubst %, %-x86_64, $(X86_64_TARGETS))
+$(X86_64_TARGETS): ARCH := x86_64
+$(X86_64_TARGETS): %: --%
+docker-x86_64: $(X86_64_TARGETS)
 
-debian9: $(addsuffix -debian9, 18.09.2 18.06.2 18.09.1 18.09.0 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.12.0 17.09.1 17.09.0 17.06.2 17.03.2)
+# arm64 targets
+ARM64_TARGETS := $(patsubst %, %-arm64, $(ARM64_TARGETS))
+$(ARM64_TARGETS): ARCH := arm64
+$(ARM64_TARGETS): %: --%
+docker-arm64: $(ARM64_TARGETS)
 
-debian8: $(addsuffix -debian8, 18.06.2 18.06.1 18.06.0 18.03.1 18.03.0 17.12.1 17.09.1 17.06.2)
+# aarch64 targets
+AARCH64_TARGETS := $(patsubst %, %-aarch64, $(AARCH64_TARGETS))
+$(AARCH64_TARGETS): ARCH := aarch64
+$(AARCH64_TARGETS): %: --%
+docker-aarch64: $(AARCH64_TARGETS)
 
-centos7: $(addsuffix -centos7, 18.09.2.ce 18.06.2.ce 18.09.1.ce 18.09.0.ce 18.06.1.ce 18.06.0.ce 18.03.1.ce 18.03.0.ce 17.12.1.ce 17.12.0.ce 17.09.1.ce 17.09.0.ce 17.06.2.ce 17.03.2.ce 1.13.1 1.12.6)
+# ppc64le targets
+PPC64LE_TARGETS := $(patsubst %, %-ppc64le, $(PPC64LE_TARGETS))
+$(PPC64LE_TARGETS): ARCH := ppc64le
+$(PPC64LE_TARGETS): WITH_LIBELF := yes
+$(PPC64LE_TARGETS): %: --%
+docker-ppc64le: $(PPC64LE_TARGETS)
 
-amzn2: $(addsuffix -amzn2, 18.06.2-ce 18.06.1-ce 18.03.1-ce 17.06.2-ce)
+# docker target to build for all os/arch combinations
+docker-all: $(AMD64_TARGETS) $(X86_64_TARGETS) \
+            $(ARM64_TARGETS) $(AARCH64_TARGETS) \
+            $(PPC64LE_TARGETS)
 
-amzn1: $(addsuffix -amzn1, 18.06.2-ce 18.06.1-ce 18.03.1-ce 17.12.1-ce 17.09.1-ce 17.06.2-ce 17.03.2-ce)
+# Default variables for all private '--' targets below.
+# One private target is defined for each OS we support.
+--%: TARGET_PLATFORM = $(*)
+--%: VERSION = $(patsubst $(OS)%-$(ARCH),%,$(TARGET_PLATFORM))
+--%: BASEIMAGE = $(OS):$(VERSION)
+--%: BUILDIMAGE = nvidia/$(LIB_NAME)/$(OS)$(VERSION)-$(ARCH)
+--%: DOCKERFILE = $(CURDIR)/docker/Dockerfile.$(OS)
+--%: ARTIFACTS_DIR = $(DIST_DIR)/$(OS)$(VERSION)/$(ARCH)
+--%: docker-build-%
+	@
 
-18.09.2-ubuntu18.04: ARCH := amd64
-18.09.2-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.2~3-0~ubuntu-bionic) | docker-ee (= 5:18.09.2~3-0~ubuntu-bionic)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.2" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private ubuntu target
+--ubuntu%: OS := ubuntu
+--ubuntu%: DOCKER_VERSION := docker-ce (>= 18.06.0~ce~3-0~ubuntu) | docker-ee (>= 18.06.0~ce~3-0~ubuntu) | docker.io (>= 18.06.0)
 
-18.09.1-ubuntu18.04: ARCH := amd64
-18.09.1-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.1~3-0~ubuntu-bionic) | docker-ee (= 5:18.09.1~3-0~ubuntu-bionic)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private debian target
+--debian%: OS := debian
+--debian%: DOCKER_VERSION := docker-ce (>= 18.06.0~ce~3-0~debian) | docker-ee (>= 18.06.0~ce~3-0~debian) | docker.io (>= 18.06.0)
 
-18.09.0-ubuntu18.04: ARCH := amd64
-18.09.0-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.0~3-0~ubuntu-bionic) | docker-ee (= 5:18.09.0~3-0~ubuntu-bionic)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.0" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.09.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private centos target
+--centos%: OS := centos
+--centos%: DOCKER_VERSION := docker-ce >= 18.06.3.ce-3.el7
 
-18.06.2-ubuntu18.04: ARCH := amd64
-18.06.2-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.2~ce~3-0~ubuntu) | docker-ee (= 18.06.2~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.2" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private amazonlinuxtarget
+--amazonlinux%: OS := amazonlinux
+--amazonlinux2%: DOCKER_VERSION := docker >= 18.06.1ce-2.amzn2
+--amazonlinux1%: DOCKER_VERSION := docker >= 18.06.1ce-2.16.amzn1
 
-18.06.1-ubuntu18.04: ARCH := amd64
-18.06.1-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.1~ce~3-0~ubuntu) | docker-ee (= 18.06.1~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private opensuse-leap target
+--opensuse-leap%: OS := opensuse-leap
+--opensuse-leap%: BASEIMAGE = opensuse/leap:$(VERSION)
+--opensuse-leap%: DOCKER_VERSION := docker >= 18.09.1_ce
 
-18.06.0-ubuntu18.04: ARCH := amd64
-18.06.0-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.0~ce~3-0~ubuntu) | docker-ee (= 18.06.0~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.0" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.06.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+# private rhel target (actually built on centos)
+--rhel%: OS := centos
+--rhel%: VERSION = $(patsubst rhel%-$(ARCH),%,$(TARGET_PLATFORM))
+--rhel%: ARTIFACTS_DIR = $(DIST_DIR)/rhel$(VERSION)/$(ARCH)
+--rhel%: DOCKER_VERSION := docker-ce >= 18.06.3.ce-3.el7
 
-18.03.1-ubuntu18.04: ARCH := amd64
-18.03.1-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.03.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.03.1~ce~3-0~ubuntu) | docker-ee (= 18.03.1~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.03.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker18.03.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker18.03.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+docker-build-%:
+	@echo "Building for $(TARGET_PLATFORM)"
+	docker pull --platform=linux/$(ARCH) $(BASEIMAGE)
+	DOCKER_BUILDKIT=1 \
+	$(DOCKER) build \
+	    --progress=plain \
+	    --build-arg BASEIMAGE="$(BASEIMAGE)" \
+	    --build-arg DOCKER_VERSION="$(DOCKER_VERSION)" \
+	    --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)" \
+	    --build-arg PKG_VERS="$(LIB_VERSION)" \
+	    --build-arg PKG_REV="$(PKG_REV)" \
+	    --tag $(BUILDIMAGE) \
+	    --file $(DOCKERFILE) .
+	$(DOCKER) run \
+	    -e DISTRIB \
+	    -e SECTION \
+	    -v $(ARTIFACTS_DIR):/dist \
+	    $(BUILDIMAGE)
 
-17.12.1-ubuntu18.04: ARCH := amd64
-17.12.1-ubuntu18.04:
-	$(DOCKER) build --build-arg VERSION_ID="18.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker17.12.1-1" \
-                        --build-arg DOCKER_VERSION="docker.io (= 17.12.1-0ubuntu1)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker17.12.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:18.04-docker17.12.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:18.04-docker17.12.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu18.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+docker-clean:
+	IMAGES=$$(docker images "nvidia/$(LIB_NAME)/*" --format="{{.ID}}"); \
+	if [ "$${IMAGES}" != "" ]; then \
+	    docker rmi -f $${IMAGES}; \
+	fi
 
-%-ubuntu16.04: ARCH := amd64
-%-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~ubuntu) | docker-ee (= $*~ee-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker$*" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.2-ubuntu16.04: ARCH := amd64
-18.09.2-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.2~3-0~ubuntu-xenial) | docker-ee (= 5:18.09.2~3-0~ubuntu-xenial)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.2" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.1-ubuntu16.04: ARCH := amd64
-18.09.1-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.1~3-0~ubuntu-xenial) | docker-ee (= 5:18.09.1~3-0~ubuntu-xenial)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.0-ubuntu16.04: ARCH := amd64
-18.09.0-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.0~3-0~ubuntu-xenial) | docker-ee (= 5:18.09.0~3-0~ubuntu-xenial)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.0" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.09.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.2-ubuntu16.04: ARCH := amd64
-18.06.2-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.2~ce~3-0~ubuntu) | docker-ee (= 18.06.2~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.2" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.1-ubuntu16.04: ARCH := amd64
-18.06.1-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.1~ce~3-0~ubuntu) | docker-ee (= 18.06.1~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.0-ubuntu16.04: ARCH := amd64
-18.06.0-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.0~ce~3-0~ubuntu) | docker-ee (= 18.06.0~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.0" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker18.06.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-17.03.2-ubuntu16.04: ARCH := amd64
-17.03.2-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker17.03.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 17.03.2~ce-0~ubuntu-xenial) | docker-ee (= 17.03.2~ee-0~ubuntu-xenial)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker17.03.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker$*" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-1.13.1-ubuntu16.04: ARCH := amd64
-1.13.1-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker1.13.1-1" \
-                        --build-arg DOCKER_VERSION="docker-engine (= 1.13.1-0~ubuntu-xenial) | docker.io (= 1.13.1-0ubuntu1~16.04.2)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker1.13.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker1.13.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker1.13.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-1.12.6-ubuntu16.04: ARCH := amd64
-1.12.6-ubuntu16.04:
-	$(DOCKER) build --build-arg VERSION_ID="16.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker1.12.6-1" \
-                        --build-arg DOCKER_VERSION="docker-engine (= 1.12.6-0~ubuntu-xenial) | docker.io (= 1.12.6-0ubuntu1~16.04.1)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker1.12.6" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:16.04-docker1.12.6" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:16.04-docker1.12.6"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu16.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-ubuntu14.04: ARCH := amd64
-%-ubuntu14.04:
-	$(DOCKER) build --build-arg VERSION_ID="14.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~ubuntu) | docker-ee (= $*~ee-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:14.04-docker$*" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:14.04-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.2-ubuntu14.04: ARCH := amd64
-18.06.2-ubuntu14.04:
-	$(DOCKER) build --build-arg VERSION_ID="14.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.2~ce~3-0~ubuntu) | docker-ee (= 18.06.2~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.2" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.1-ubuntu14.04: ARCH := amd64
-18.06.1-ubuntu14.04:
-	$(DOCKER) build --build-arg VERSION_ID="14.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.1~ce~3-0~ubuntu) | docker-ee (= 18.06.1~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.1" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.0-ubuntu14.04: ARCH := amd64
-18.06.0-ubuntu14.04:
-	$(DOCKER) build --build-arg VERSION_ID="14.04" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.0~ce~3-0~ubuntu) | docker-ee (= 18.06.0~ee~3-0~ubuntu)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.0" -f Dockerfile.ubuntu .
-	$(MKDIR) -p $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/ubuntu:14.04-docker18.06.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/ubuntu14.04/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-debian10: ARCH := amd64
-%-debian10:
-	$(DOCKER) build --build-arg VERSION_ID="buster" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:10-docker$*" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian10/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:10-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian10/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.6-debian10: ARCH := amd64
-18.09.6-debian10:
-	$(DOCKER) build --build-arg VERSION_ID="buster" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.6-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.6~3-0~debian-buster)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.6" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:10-docker18.09.6" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian10/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:10-docker18.09.6"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian10/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-debian9: ARCH := amd64
-%-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker$*" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.2-debian9: ARCH := amd64
-18.09.2-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.2~3-0~debian-stretch)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.09.2" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.09.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.1-debian9: ARCH := amd64
-18.09.1-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.1~3-0~debian-stretch)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.09.1" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.09.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.0-debian9: ARCH := amd64
-18.09.0-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.09.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 5:18.09.0~3-0~debian-stretch)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.09.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.09.0" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.09.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.2-debian9: ARCH := amd64
-18.06.2-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.2~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.06.2" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.06.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.1-debian9: ARCH := amd64
-18.06.1-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.1~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.06.1" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.06.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.0-debian9: ARCH := amd64
-18.06.0-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.0~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker18.06.0" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker18.06.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-17.03.2-debian9: ARCH := amd64
-17.03.2-debian9:
-	$(DOCKER) build --build-arg VERSION_ID="9" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker17.03.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 17.03.2~ce-0~debian-stretch)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker17.03.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:9-docker17.03.2" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:9-docker17.03.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian9/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-debian8: ARCH := amd64
-%-debian8:
-	$(DOCKER) build --build-arg VERSION_ID="8" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker$*-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= $*~ce-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker$*" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:8-docker$*" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:8-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.2-debian8: ARCH := amd64
-18.06.2-debian8:
-	$(DOCKER) build --build-arg VERSION_ID="8" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.2-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.2~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.2" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:8-docker18.06.2" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:8-docker18.06.2"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.1-debian8: ARCH := amd64
-18.06.1-debian8:
-	$(DOCKER) build --build-arg VERSION_ID="8" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.1-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.1~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.1" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:8-docker18.06.1" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:8-docker18.06.1"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.06.0-debian8: ARCH := amd64
-18.06.0-debian8:
-	$(DOCKER) build --build-arg VERSION_ID="8" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)+docker18.06.0-1" \
-                        --build-arg DOCKER_VERSION="docker-ce (= 18.06.0~ce~3-0~debian)" \
-                        --build-arg PKG_VERS="$(VERSION)+docker18.06.0" \
-                        --build-arg PKG_REV="$(PKG_REV)" \
-                        -t "nvidia/nvidia-docker2/debian:8-docker18.06.0" -f Dockerfile.debian .
-	$(MKDIR) -p $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/debian:8-docker18.06.0"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/debian8/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%.ce-centos7: ARCH := x86_64
-%.ce-centos7:
-	$(DOCKER) build --build-arg VERSION_ID="7" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker$*" \
-                        --build-arg DOCKER_VERSION="docker-ce = $*.ce" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker$*.ce" \
-                        -t "nvidia/nvidia-docker2/centos:7-docker$*.ce" -f Dockerfile.centos .
-	$(MKDIR) -p $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/centos:7-docker$*.ce"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.2.ce-centos7: ARCH := x86_64
-18.09.2.ce-centos7:
-	$(DOCKER) build --build-arg VERSION_ID="7" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker18.09.2" \
-                        --build-arg DOCKER_VERSION="docker-ce = 3:18.09.2" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker18.09.2.ce" \
-                        -t "nvidia/nvidia-docker2/centos:7-docker18.09.2.ce" -f Dockerfile.centos .
-	$(MKDIR) -p $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/centos:7-docker18.09.2.ce"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.1.ce-centos7: ARCH := x86_64
-18.09.1.ce-centos7:
-	$(DOCKER) build --build-arg VERSION_ID="7" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker18.09.1" \
-                        --build-arg DOCKER_VERSION="docker-ce = 3:18.09.1" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker18.09.1.ce" \
-                        -t "nvidia/nvidia-docker2/centos:7-docker18.09.1.ce" -f Dockerfile.centos .
-	$(MKDIR) -p $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/centos:7-docker18.09.1.ce"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-18.09.0.ce-centos7: ARCH := x86_64
-18.09.0.ce-centos7:
-	$(DOCKER) build --build-arg VERSION_ID="7" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker18.09.0" \
-                        --build-arg DOCKER_VERSION="docker-ce = 3:18.09.0" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker18.09.0.ce" \
-                        -t "nvidia/nvidia-docker2/centos:7-docker18.09.0.ce" -f Dockerfile.centos .
-	$(MKDIR) -p $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/centos:7-docker18.09.0.ce"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-centos7: ARCH := x86_64
-%-centos7:
-	$(DOCKER) build --build-arg VERSION_ID="7" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker$*" \
-                        --build-arg DOCKER_VERSION="docker = 2:$*" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker$*" \
-                        -t "nvidia/nvidia-docker2/centos:7-docker$*" -f Dockerfile.centos .
-	$(MKDIR) -p $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/centos:7-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/centos7/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-ce-amzn2: ARCH := x86_64
-%-ce-amzn2:
-	$(DOCKER) build --build-arg VERSION_ID="2" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker$*.amzn2" \
-                        --build-arg DOCKER_VERSION="docker = $*ce" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker$*.ce.amzn2" \
-                        -t "nvidia/nvidia-docker2/amzn:2-docker$*" -f Dockerfile.amzn .
-	$(MKDIR) -p $(DIST_DIR)/amzn2/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/amzn:2-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/amzn2/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
-
-%-ce-amzn1: ARCH := x86_64
-%-ce-amzn1:
-	$(DOCKER) build --build-arg VERSION_ID="1" \
-                        --build-arg RUNTIME_VERSION="$(RUNTIME_VERSION)-1.docker$*.amzn1" \
-                        --build-arg DOCKER_VERSION="docker = $*ce" \
-                        --build-arg PKG_VERS="$(VERSION)" \
-                        --build-arg PKG_REV="$(PKG_REV).docker$*.ce.amzn1" \
-                        -t "nvidia/nvidia-docker2/amzn:1-docker$*" -f Dockerfile.amzn .
-	$(MKDIR) -p $(DIST_DIR)/amzn1/$(ARCH)
-	$(DOCKER) run  --cidfile $@.cid "nvidia/nvidia-docker2/amzn:1-docker$*"
-	$(DOCKER) cp $$(cat $@.cid):/dist/. $(DIST_DIR)/amzn1/$(ARCH)
-	$(DOCKER) rm $$(cat $@.cid) && rm $@.cid
+distclean:
+	rm -rf $(DIST_DIR)
